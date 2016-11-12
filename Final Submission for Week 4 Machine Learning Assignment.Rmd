@@ -1,0 +1,190 @@
+
+Qualitative Activity Recognition
+===========================================================================================
+
+Synopsis
+--------
+Goal of this project is to quantify how well people do a particular activity i.e. to predict the manner in which people did the exercise using the 'classe' variable in the given training set.
+
+Sourcing the data into R
+-------------------------
+```{r}
+datatr <- read.csv("E:/Documents/Coursera/Machine Learning/Week 4 Programming Assignment/pml-training.csv",na.strings=c("NA","#DIV/0!",""))
+
+testingdata <- read.csv("E:/Documents/Coursera/Machine Learning/Week 4 Programming Assignment/pml-testing.csv",na.strings=c("NA","#DIV/0!",""))
+```
+
+Loading the required libraries
+------------------------------
+```{r}
+library(caret)
+library(ggplot2)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(RMySQL)
+library(pROC)
+library(foreach)
+library(doParallel)
+library(gbm)
+library(Hmisc)
+
+```
+
+## Cleaning the data by removing all columns that contains NA and removing features that are not in the testing dataset.Since the testing dataset has no time-dependence, these values are useless and can be disregarded.  We will also remove the first 7 features since they are related to the time-series or are not numeric.
+```{r}
+features <- names(testingdata[,colSums(is.na(testingdata)) == 0])[8:59]
+```
+
+Only use features used in testing cases
+---------------------------------------
+```{r}
+datatr <- datatr[,c(features,"classe")]
+testingdata <- testingdata[,c(features,"problem_id")]
+dim(datatr)
+```
+
+Creating Training & Test Data Sets
+----------------------------------
+```{r}
+set.seed(6)
+inTrain <- createDataPartition(y=datatr$classe,p=0.7,list=FALSE)
+training <- datatr[inTrain,]
+testing <- datatr[-inTrain,]
+```
+
+Computing & Checking whether Area Under Curve > 0.5 by plotting ROC Curve
+-------------------------------------------------------------------------
+```{r}
+lm1 <- lm(classe ~.,data = training)
+newdata <- data.frame(testing)
+pred <- predict(lm1,newdata)
+print(auc(testing$classe,pred))
+```
+
+Call:
+plot.roc.default(x = testing$classe, predictor = pred)
+
+Data: pred in 1674 controls (testing$classe A) < 1139 cases (testing$classe B).
+Area under the curve: 0.8137
+
+dim(testingdata)
+
+plot.roc(testing$classe,pred)
+
+As Area Under Curve is 0.8137 which is greater than 0.8, it is a good fit.
+**************************************************************************
+
+Predictions using Decision Tree  Model
+--------------------------------------
+```{r}
+fitDT <- rpart(classe~.,data=training,method="class")
+predDT <- predict(fitDT,testing,type="class")
+c1 <- confusionMatrix(predDT, testing$classe)$overall[1]
+c1
+```
+
+Prediction Using Linear Discriminant Analysis Method
+----------------------------------------------------
+```{r}
+fitLDA <- train(classe ~ ., data=training, method="lda")
+predLDA <- predict(fitLDA, testing)
+c2 <- confusionMatrix(predLDA, testing$classe)$overall[1]
+c2
+```
+
+Prediction Using Random Forest Method
+-------------------------------------
+```{r}
+fitRF <- randomForest(classe ~ ., data=training, ntree=500)
+predRF <- predict(fitRF, testing,type="class")
+c3 <- confusionMatrix(predRF, testing$classe)$overall[1]
+c3
+```
+
+As c3>c1>c2, it can be concluded that Random Forest Method is the most accurate method.
+***************************************************************************************
+Hence, we will predict using Random Forest Method for the cases in 'pml-testing' set.
+*************************************************************************************
+
+RESULTS
+~~~~~~~~
+Applying the Random Forest model to testingdata set and getting the predictions
+--------------------------------------------------------------------------------
+```{r}
+predictionRF <- predict(fitRF,testingdata,type="class")
+predictionRF
+
+ # 1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 
+ # B  A  B  A  A  E  D  B  A  A  B  C  B  A  E  E  A  B  B  B 
+ # Levels: A B C D E
+
+summary(predictionRF)
+ # A B C D E 
+ # 7 8 1 1 3
+
+print(fitRF)
+```
+Call:
+ randomForest(formula = classe ~ ., data = training, ntree = 500) 
+               Type of random forest: classification
+                     Number of trees: 500
+No. of variables tried at each split: 7
+
+        OOB estimate of  error rate: 0.47%
+Confusion matrix:
+     A    B    C    D    E  class.error
+A 3905    1    0    0    0 0.0002560164
+B   12 2642    4    0    0 0.0060195636
+C    0   15 2379    2    0 0.0070951586
+D    0    0   21 2229    2 0.0102131439
+E    0    0    4    4 2517 0.0031683168
+
+```
+
+
+
+Out of sample error Calculation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In Sample Error Rate is 0.4%.
+
+Predicting on testing Data using Random Forest Method
+-----------------------------------------------------
+
+predRF <- predict(fitRF, testing,type="class")
+length(predRF)
+```
+
+True accuracy of the predicted model
+------------------------------------
+```{r}
+outOfSampleError.accuracy <- sum(predRF == testing$classe)/length(predRF)
+
+outOfSampleError.accuracy
+
+outOfSampleError <- 1 - outOfSampleError.accuracy
+outOfSampleError
+e <- outOfSampleError * 100
+paste0("Out of sample error estimation: ", round(e, digits = 2), "%")
+
+```
+
+Write up
+~~~~~~~~
+Write up the predicted character to the ".txt" files
+----------------------------------------------------
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(predictionRF)
+```
+
+
